@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/codegangsta/cli"
-	"github.com/tucnak/store"
 	"github.com/ystyle/jvms/utils/file"
 	"github.com/ystyle/jvms/utils/jdk"
 	"github.com/ystyle/jvms/utils/web"
@@ -26,8 +25,8 @@ type Config struct {
 	CurrentJDKVersion string `json:"current_jdk_version"`
 	Originalpath      string `json:"original_path"`
 	Proxy             string `json:"proxy"`
-	store             string
-	download          string
+	Store             string `json:"Store"`
+	Download          string `json:"Download"`
 }
 
 var config Config
@@ -69,7 +68,7 @@ func commands() []cli.Command {
 				},
 				cli.StringFlag{
 					Name:  "originalpath",
-					Usage: "the jdk download index file url.",
+					Usage: "the jdk Download index file url.",
 					Value: defaultOriginalpath,
 				},
 			},
@@ -103,7 +102,7 @@ func commands() []cli.Command {
 			Usage:     "List current JDK installations.",
 			Action: func(c *cli.Context) error {
 				fmt.Println("Installed jdk (* marks in use):")
-				v := jdk.GetInstalled(config.store)
+				v := jdk.GetInstalled(config.Store)
 				for i, version := range v {
 					str := ""
 					if config.CurrentJDKVersion == version {
@@ -129,7 +128,7 @@ func commands() []cli.Command {
 					return errors.New("invalid version., Type \"jvms rls\" to see what is available for install")
 				}
 
-				if jdk.IsVersionInstalled(config.store, v) {
+				if jdk.IsVersionInstalled(config.Store, v) {
 					fmt.Println("Version " + v + " is already installed.")
 					return nil
 				}
@@ -138,27 +137,27 @@ func commands() []cli.Command {
 					return err
 				}
 
-				if !file.Exists(config.download) {
-					os.MkdirAll(config.download, 0777)
+				if !file.Exists(config.Download) {
+					os.MkdirAll(config.Download, 0777)
 				}
-				if !file.Exists(config.store) {
-					os.MkdirAll(config.store, 0777)
+				if !file.Exists(config.Store) {
+					os.MkdirAll(config.Store, 0777)
 				}
 
 				for _, version := range versions {
 					if version.Version == v {
-						dlzipfile, success := web.GetJDK(config.download, v, version.Url)
+						dlzipfile, success := web.GetJDK(config.Download, v, version.Url)
 						if success {
 							fmt.Printf("Installing JDK %s ...\n", v)
 
 							// Extract jdk to the temp directory
-							jdktempfile := path.Join(config.download, fmt.Sprintf("%s_temp", v))
+							jdktempfile := path.Join(config.Download, fmt.Sprintf("%s_temp", v))
 							err := file.Unzip(dlzipfile, jdktempfile)
 							if err != nil {
 								return fmt.Errorf("unzip failed: %w", err)
 							}
 							// Copy the jdk files to the installation directory
-							err = os.Rename(jdktempfile, path.Join(config.store, v))
+							err = os.Rename(jdktempfile, path.Join(config.Store, v))
 							if err != nil {
 								return fmt.Errorf("unzip failed: %w", err)
 							}
@@ -169,7 +168,7 @@ func commands() []cli.Command {
 
 							fmt.Println("Installation complete. If you want to use this version, type\n\njvms switch", v)
 						} else {
-							fmt.Println("Could not download JDK " + v + " executable.")
+							fmt.Println("Could not Download JDK " + v + " executable.")
 						}
 						return nil
 					}
@@ -186,7 +185,7 @@ func commands() []cli.Command {
 				if v == "" {
 					return errors.New("you should input a version, Type \"jvms list\" to see what is installed")
 				}
-				if !jdk.IsVersionInstalled(config.store, v) {
+				if !jdk.IsVersionInstalled(config.Store, v) {
 					fmt.Printf("jdk %s is not installed. ", v)
 					return nil
 				}
@@ -202,7 +201,7 @@ func commands() []cli.Command {
 				if err != nil {
 					return errors.New("set Environment variable `JAVA_HOME` failure: Please run as admin user")
 				}
-				err = os.Symlink(path.Join(config.store, v), config.JavaHome)
+				err = os.Symlink(path.Join(config.Store, v), config.JavaHome)
 				if err != nil {
 					return errors.New("Switch jdk failed, " + err.Error())
 				}
@@ -220,12 +219,12 @@ func commands() []cli.Command {
 				if v == "" {
 					return errors.New("you should input a version, Type \"jvms list\" to see what is installed")
 				}
-				if jdk.IsVersionInstalled(config.store, v) {
+				if jdk.IsVersionInstalled(config.Store, v) {
 					fmt.Printf("Remove JDK %s ...\n", v)
 					if config.CurrentJDKVersion == v {
 						os.Remove(config.JavaHome)
 					}
-					dir := path.Join(config.store, v)
+					dir := path.Join(config.Store, v)
 					e := os.RemoveAll(dir)
 					if e != nil {
 						fmt.Println("Error removing jdk " + v)
@@ -241,7 +240,7 @@ func commands() []cli.Command {
 		},
 		{
 			Name:  "rls",
-			Usage: "Show a list of versions available for download. ",
+			Usage: "Show a list of versions available for Download. ",
 			Flags: []cli.Flag{
 				cli.BoolFlag{
 					Name:  "a",
@@ -264,7 +263,7 @@ func commands() []cli.Command {
 					}
 				}
 				if len(versions) == 0 {
-					fmt.Println("No availabled jdk veriosn for download.")
+					fmt.Println("No availabled jdk veriosn for Download.")
 				}
 
 				fmt.Printf("\nFor a complete list, visit %s\n", config.Originalpath)
@@ -312,22 +311,19 @@ func getJdkVersions() ([]JdkVersion, error) {
 }
 
 func startup(c *cli.Context) error {
-	store.Init("jvms")
-	if err := store.Load("jvms.json", &config); err != nil {
+	s := file.GetCurrentPath()
+	buf, err := os.ReadFile(path.Join(s, "jvms.json"))
+	if err != nil {
 		return errors.New("failed to load the config:" + err.Error())
 	}
-	s := file.GetCurrentPath()
-	config.store = path.Join(s, "store")
-	config.download = path.Join(s, "download")
-	if config.Originalpath == "" {
-		config.Originalpath = defaultOriginalpath
+	if json.Unmarshal(buf, &config) != nil {
+		return errors.New("failed to parse the config:" + err.Error())
 	}
 	return nil
 }
 
 func shutdown(c *cli.Context) error {
-	if err := store.Save("jvms.json", &config); err != nil {
-		return errors.New("failed to save the config:" + err.Error())
-	}
-	return nil
+	buf, _ := json.Marshal(config)
+	s := file.GetCurrentPath()
+	return os.WriteFile(path.Join(s, "jvms.json"), buf, 0666)
 }
